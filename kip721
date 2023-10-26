@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.5.0;
+
+import "@openzeppelin/contracts/token/ERC721/ERC721Full.sol";
+import "@openzeppelin/contracts/ownership/Ownable.sol";
+
+contract KlaytnERC721 is ERC721Full, Ownable {
+
+    constructor(string memory name, string memory symbol) ERC721Full(name, symbol) public {}
+
+    // Airdrop function to send tokens to multiple addresses
+    function airdrop(address[] memory recipients, uint256[] memory tokenIds) public onlyOwner {
+        require(recipients.length == tokenIds.length, "Recipient and token ID arrays must have the same length");
+
+        for (uint256 i = 0; i < recipients.length; i++) {
+            _mint(recipients[i], tokenIds[i]);
+        }
+    }
+
+    // Mint a new ERC-721 token
+    function mint(address to, uint256 tokenId) public onlyOwner {
+        _mint(to, tokenId);
+    }
+}
