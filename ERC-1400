@@ -1,0 +1,130 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+interface IERC1400 {
+    // Transfer Events
+    event Transfer(address indexed from, address indexed to, uint256 value);
+    event TransferByPartition(bytes32 indexed partition, address indexed from, address indexed to, uint256 value);
+
+    // Token Information
+    function totalSupply() external view returns (uint256);
+    function balanceOf(address account) external view returns (uint256);
+    function balanceOfByPartition(bytes32 partition, address tokenHolder) external view returns (uint256);
+
+    // Transfers
+    function transfer(address to, uint256 value) external returns (bool);
+    function transferByPartition(bytes32 partition, address to, uint256 value, bytes calldata data) external returns (bytes32);
+
+    // Partition Management
+    function partitionsOf(address tokenHolder) external view returns (bytes32[] memory);
+    
+    // Operator Functions
+    function isOperatorForPartition(bytes32 partition, address operator, address tokenHolder) external view returns (bool);
+    function operatorTransferByPartition(bytes32 partition, address from, address to, uint256 value, bytes calldata data, bytes calldata operatorData) external returns (bytes32);
+}
+
+contract ERC1400Token is IERC1400 {
+    string public name = "Security Token";
+    string public symbol = "STKN";
+    uint8 public decimals = 18;
+    uint256 private _totalSupply;
+
+    // Partition mapping: token holder => partition => balance
+    mapping(address => mapping(bytes32 => uint256)) private _balancesByPartition;
+
+    // Authorized operators for partitions
+    mapping(bytes32 => mapping(address => mapping(address => bool))) private _authorizedPartitionOperators;
+
+    // List of partitions per token holder
+    mapping(address => bytes32[]) private _partitionsOf;
+
+    // Owner of the contract
+    address public owner;
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not authorized");
+        _;
+    }
+
+    constructor(uint256 initialSupply) {
+        _totalSupply = initialSupply;
+        owner = msg.sender;
+
+        // Assign initial supply to owner in default partition
+        _balancesByPartition[owner][bytes32("DEFAULT")] = initialSupply;
+        _partitionsOf[owner].push(bytes32("DEFAULT"));
+    }
+
+    function totalSupply() external view override returns (uint256) {
+        return _totalSupply;
+    }
+
+    function balanceOf(address account) external view override returns (uint256) {
+        uint256 totalBalance = 0;
+        for (uint i = 0; i < _partitionsOf[account].length; i++) {
+            totalBalance += _balancesByPartition[account][_partitionsOf[account][i]];
+        }
+        return totalBalance;
+    }
+
+    function balanceOfByPartition(bytes32 partition, address tokenHolder) external view override returns (uint256) {
+        return _balancesByPartition[tokenHolder][partition];
+    }
+
+    function partitionsOf(address tokenHolder) external view override returns (bytes32[] memory) {
+        return _partitionsOf[tokenHolder];
+    }
+
+    function transfer(address to, uint256 value) external override returns (bool) {
+        // Transfer in default partition
+        return transferByPartition(bytes32("DEFAULT"), to, value, "");
+    }
+
+    function transferByPartition(bytes32 partition, address to, uint256 value, bytes calldata data) public override returns (bytes32) {
+        require(_balancesByPartition[msg.sender][partition] >= value, "Insufficient balance in partition");
+
+        _balancesByPartition[msg.sender][partition] -= value;
+        _balancesByPartition[to][partition] += value;
+
+        emit TransferByPartition(partition, msg.sender, to, value);
+        emit Transfer(msg.sender, to, value);
+
+        // If recipient has no balance in the partition, add the partition to their partition list
+        if (_balancesByPartition[to][partition] == value) {
+            _partitionsOf[to].push(partition);
+        }
+
+        return partition;
+    }
+
+    function isOperatorForPartition(bytes32 partition, address operator, address tokenHolder) external view override returns (bool) {
+        return _authorizedPartitionOperators[partition][tokenHolder][operator];
+    }
+
+    function operatorTransferByPartition(
+        bytes32 partition,
+        address from,
+        address to,
+        uint256 value,
+        bytes calldata data,
+        bytes calldata operatorData
+    ) external override returns (bytes32) {
+        require(isOperatorForPartition(partition, msg.sender, from), "Not authorized as operator for partition");
+
+        _balancesByPartition[from][partition] -= value;
+        _balancesByPartition[to][partition] += value;
+
+        emit TransferByPartition(partition, from, to, value);
+        emit Transfer(from, to, value);
+
+        return partition;
+    }
+
+    function authorizeOperatorForPartition(bytes32 partition, address operator) external {
+        _authorizedPartitionOperators[partition][msg.sender][operator] = true;
+    }
+
+    function revokeOperatorForPartition(bytes32 partition, address operator) external {
+        _authorizedPartitionOperators[partition][msg.sender][operator] = false;
+    }
+}
