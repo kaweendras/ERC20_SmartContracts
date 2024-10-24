@@ -1,0 +1,98 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+interface IERC3643 {
+    event Transfer(address indexed from, address indexed to, uint256 value);
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+
+    function totalSupply() external view returns (uint256);
+    function balanceOf(address account) external view returns (uint256);
+    function transfer(address recipient, uint256 amount) external returns (bool);
+    function approve(address spender, uint256 amount) external returns (bool);
+    function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
+
+    // Specific to permissioned token
+    function isAuthorized(address account) external view returns (bool);
+    function authorizeAccount(address account) external;
+    function revokeAuthorization(address account) external;
+}
+
+contract ERC3643Token is IERC3643 {
+    string public name = "Permissioned Token";
+    string public symbol = "PTKN";
+    uint8 public decimals = 18;
+    uint256 private _totalSupply;
+
+    mapping(address => uint256) private _balances;
+    mapping(address => mapping(address => uint256)) private _allowances;
+    mapping(address => bool) private _authorizedAccounts;
+
+    address public owner;
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not authorized");
+        _;
+    }
+
+    modifier onlyAuthorized(address account) {
+        require(_authorizedAccounts[account], "Account not authorized");
+        _;
+    }
+
+    constructor(uint256 initialSupply) {
+        _totalSupply = initialSupply;
+        _balances[msg.sender] = initialSupply;
+        owner = msg.sender;
+        _authorizedAccounts[msg.sender] = true; // Authorize the owner
+    }
+
+    function totalSupply() external view override returns (uint256) {
+        return _totalSupply;
+    }
+
+    function balanceOf(address account) external view override returns (uint256) {
+        return _balances[account];
+    }
+
+    function transfer(address recipient, uint256 amount) external override onlyAuthorized(msg.sender) returns (bool) {
+        require(recipient != address(0), "Invalid address");
+        require(_balances[msg.sender] >= amount, "Insufficient balance");
+        require(_authorizedAccounts[recipient], "Recipient not authorized");
+
+        _balances[msg.sender] -= amount;
+        _balances[recipient] += amount;
+        emit Transfer(msg.sender, recipient, amount);
+        return true;
+    }
+
+    function approve(address spender, uint256 amount) external override onlyAuthorized(msg.sender) returns (bool) {
+        require(spender != address(0), "Invalid address");
+        _allowances[msg.sender][spender] = amount;
+        emit Approval(msg.sender, spender, amount);
+        return true;
+    }
+
+    function transferFrom(address sender, address recipient, uint256 amount) external override onlyAuthorized(sender) returns (bool) {
+        require(_authorizedAccounts[recipient], "Recipient not authorized");
+        require(_balances[sender] >= amount, "Insufficient balance");
+        require(_allowances[sender][msg.sender] >= amount, "Allowance exceeded");
+
+        _balances[sender] -= amount;
+        _balances[recipient] += amount;
+        _allowances[sender][msg.sender] -= amount;
+        emit Transfer(sender, recipient, amount);
+        return true;
+    }
+
+    function isAuthorized(address account) external view override returns (bool) {
+        return _authorizedAccounts[account];
+    }
+
+    function authorizeAccount(address account) external override onlyOwner {
+        _authorizedAccounts[account] = true;
+    }
+
+    function revokeAuthorization(address account) external override onlyOwner {
+        _authorizedAccounts[account] = false;
+    }
+}
